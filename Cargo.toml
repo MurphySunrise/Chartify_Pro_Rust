@@ -1,0 +1,53 @@
+[package]
+name = "chartify_pro"
+version = "0.1.0"
+edition = "2021"
+authors = ["Murphy"]
+description = "CSV Data Analysis & Interactive Chart Viewer"
+
+[dependencies]
+# Data processing
+polars = { version = "0.46", features = ["lazy", "csv", "strings", "dtype-full"] }
+
+# Numerical computing
+ndarray = "0.16"
+
+# Statistics
+statrs = "0.18"
+
+# GUI framework
+eframe = "0.30"
+egui = "0.30"
+egui_plot = "0.30"
+
+# Parallel computing
+rayon = "1.10"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# File dialogs
+rfd = "0.15"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Image handling
+image = "0.25"
+
+# Static chart generation
+plotters = "0.3"
+plotters-bitmap = "0.3"
+
+# Pixel-level drawing
+imageproc = "0.25"
+rusttype = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[profile.dev]
+opt-level = 1
