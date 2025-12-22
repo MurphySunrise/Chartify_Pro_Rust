@@ -2,6 +2,9 @@
 //!
 //! A Rust application for analyzing CSV data and displaying interactive charts.
 
+// Hide console window on Windows in release builds
+#![windows_subsystem = "windows"]
+
 mod charts;
 mod data;
 mod gui;
