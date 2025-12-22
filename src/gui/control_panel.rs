@@ -100,7 +100,7 @@ impl ControlPanel {
         ui.add_space(5.0);
 
         egui::Frame::none()
-            .fill(Color32::from_rgb(40, 40, 45))
+            .fill(ui.visuals().widgets.noninteractive.bg_fill)
             .rounding(5.0)
             .inner_margin(8.0)
             .show(ui, |ui| {
@@ -236,7 +236,7 @@ impl ControlPanel {
             DataMode::Multi => {
                 ui.label("Data Columns:");
                 egui::Frame::none()
-                    .fill(Color32::from_rgb(40, 40, 45))
+                    .fill(ui.visuals().widgets.noninteractive.bg_fill)
                     .rounding(5.0)
                     .inner_margin(5.0)
                     .show(ui, |ui| {
@@ -272,6 +272,18 @@ impl ControlPanel {
                     .min_size(egui::vec2(200.0, 35.0));
                 if ui.add(button).clicked() {
                     action = ControlPanelAction::Calculate;
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // Export PPT button (enabled after calculation complete)
+            let ppt_enabled = self.progress >= 100.0 && self.status.contains("Complete");
+            ui.add_enabled_ui(ppt_enabled, |ui| {
+                let ppt_button = egui::Button::new(RichText::new("📄 Export PPT").size(14.0))
+                    .min_size(egui::vec2(150.0, 30.0));
+                if ui.add(ppt_button).clicked() {
+                    action = ControlPanelAction::ExportPpt;
                 }
             });
         });
@@ -318,4 +330,5 @@ pub enum ControlPanelAction {
     BrowseCsv,
     GroupColumnChanged,
     Calculate,
+    ExportPpt,
 }

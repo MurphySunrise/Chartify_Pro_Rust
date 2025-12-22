@@ -45,6 +45,10 @@ plotters-bitmap = "0.3"
 imageproc = "0.25"
 rusttype = "0.9"
 
+# PPT generation
+ppt-rs = "0.1"
+zip = "0.6"
+
 [profile.release]
 opt-level = 3
 lto = true

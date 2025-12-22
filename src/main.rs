@@ -2,10 +2,11 @@
 //!
 //! A Rust application for analyzing CSV data and displaying interactive charts.
 
-mod data;
-mod stats;
 mod charts;
+mod data;
 mod gui;
+mod ppt;
+mod stats;
 
 use eframe::egui;
 use gui::ChartifyApp;
@@ -14,7 +15,7 @@ fn main() -> eframe::Result<()> {
     // Configure native options
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1400.0, 800.0])
+            .with_inner_size([2000.0, 900.0]) // Width for 2 chart columns (800×2 + left panel + spacing)
             .with_min_inner_size([1200.0, 700.0])
             .with_title("Chartify Pro"),
         ..Default::default()

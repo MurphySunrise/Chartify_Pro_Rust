@@ -286,7 +286,7 @@ impl ChartifyApp {
                         let count = chart_data.len();
                         self.chart_viewer.set_chart_data(chart_data);
                         self.control_panel
-                            .set_progress(100.0, &format!("Complete! {} charts generated.", count));
+                            .set_progress(100.0, &format!("Complete! {} charts ready", count));
                         self.is_calculating = false;
                         should_keep_receiver = false;
                     }
@@ -302,6 +302,86 @@ impl ChartifyApp {
             // Put receiver back if still needed
             if should_keep_receiver {
                 self.calc_rx = Some(rx);
+            }
+        }
+    }
+
+    /// Handle PPT export - render charts to memory and create PPT directly
+    fn handle_export_ppt(&mut self) {
+        use crate::charts::ChartRenderer;
+        use crate::ppt::PptGenerator;
+
+        // Check if we have chart data
+        if self.chart_viewer.chart_data.is_empty() {
+            self.control_panel.set_progress(0.0, "No charts to export");
+            return;
+        }
+
+        // Ask user for output location
+        let output_path = match rfd::FileDialog::new()
+            .add_filter("PowerPoint", &["pptx"])
+            .set_file_name("chartify_report.pptx")
+            .save_file()
+        {
+            Some(path) => path,
+            None => return, // User cancelled
+        };
+
+        self.control_panel.set_progress(10.0, "Rendering charts...");
+
+        // Render charts to in-memory PNG bytes
+        let width = 1400u32;
+        let height = 1000u32;
+        let mut image_data: Vec<Vec<u8>> = Vec::new();
+        let total = self.chart_viewer.data_type_order.len();
+
+        for (idx, data_type) in self.chart_viewer.data_type_order.iter().enumerate() {
+            if let Some(chart_data) = self.chart_viewer.chart_data.get(data_type) {
+                match ChartRenderer::render_chart_card_to_bytes(chart_data, width, height) {
+                    Ok(png_bytes) => {
+                        image_data.push(png_bytes);
+                        let progress = 10.0 + (idx as f32 / total as f32) * 40.0;
+                        self.control_panel.set_progress(
+                            progress,
+                            &format!("Rendering chart {}/{}...", idx + 1, total),
+                        );
+                    }
+                    Err(e) => {
+                        self.control_panel
+                            .set_progress(0.0, &format!("Render error: {}", e));
+                        return;
+                    }
+                }
+            }
+        }
+
+        if image_data.is_empty() {
+            self.control_panel.set_progress(0.0, "No charts rendered");
+            return;
+        }
+
+        self.control_panel.set_progress(60.0, "Generating PPT...");
+
+        // Generate PPT with in-memory images
+        match PptGenerator::generate_ppt_from_bytes(
+            &image_data,
+            &output_path,
+            "Chartify Pro Report",
+        ) {
+            Ok(()) => {
+                let slide_count = image_data.len().div_ceil(4);
+                self.control_panel.set_progress(
+                    100.0,
+                    &format!(
+                        "PPT exported: {} slides, {} charts",
+                        slide_count,
+                        image_data.len()
+                    ),
+                );
+            }
+            Err(e) => {
+                self.control_panel
+                    .set_progress(0.0, &format!("PPT error: {}", e));
             }
         }
     }
@@ -335,6 +415,9 @@ impl eframe::App for ChartifyApp {
                             if !self.is_calculating {
                                 self.start_calculation();
                             }
+                        }
+                        ControlPanelAction::ExportPpt => {
+                            self.handle_export_ppt();
                         }
                         ControlPanelAction::None => {}
                     }

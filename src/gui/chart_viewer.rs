@@ -1,6 +1,6 @@
 //! Chart Viewer Widget
 //! Right side scrollable panel for displaying interactive charts using egui_plot.
-//! Optimized with virtual scrolling and lazy loading for performance.
+//! Supports responsive multi-column layout based on available width.
 
 use crate::charts::{ChartData, ChartPlotter};
 use egui::{Color32, RichText, ScrollArea};
@@ -8,10 +8,11 @@ use std::collections::HashMap;
 
 /// Chart card configuration
 const CHART_SPACING: f32 = 15.0;
-const CARD_HEIGHT: f32 = 450.0; // Larger height for better visibility
+const CARD_HEIGHT: f32 = 450.0; // Height for each card
+const CHART_WIDTH: f32 = 780.0; // Fixed width for each chart card
 
-/// Scrollable chart display area with virtual scrolling.
-/// Only renders charts that are visible in the viewport for optimal performance.
+/// Scrollable chart display area with responsive multi-column layout.
+/// Automatically arranges charts into columns based on available width.
 pub struct ChartViewer {
     /// Chart data for all data types
     pub chart_data: HashMap<String, ChartData>,
@@ -61,9 +62,8 @@ impl ChartViewer {
         self.chart_data = chart_data;
     }
 
-    /// Draw the chart viewer with virtual scrolling
-    /// Only renders charts visible in the current viewport
-    /// Each row displays ONE chart that fills the available width
+    /// Draw the chart viewer with responsive multi-column layout
+    /// Charts have fixed width and automatically wrap to multiple columns
     pub fn show(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         if self.chart_data.is_empty() {
             ui.centered_and_justified(|ui| {
@@ -72,11 +72,14 @@ impl ChartViewer {
             return;
         }
 
-        // Get available width for full-width cards
+        // Calculate how many columns fit in available width
         let avail_width = ui.available_width();
+        let card_total_width = CHART_WIDTH + CHART_SPACING;
+        let num_columns = ((avail_width / card_total_width).floor() as usize).max(1);
 
-        // One chart per row
-        let total_rows = self.data_type_order.len();
+        // Calculate number of rows needed
+        let total_items = self.data_type_order.len();
+        let total_rows = (total_items + num_columns - 1) / num_columns; // Ceiling division
         let row_height = CARD_HEIGHT + CHART_SPACING;
 
         // Clone data for use in closure
@@ -86,40 +89,42 @@ impl ChartViewer {
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show_rows(ui, row_height, total_rows, |ui, row_range| {
-                // Only render visible rows (one chart per row)
                 for row in row_range {
-                    if let Some(dt) = order.get(row) {
-                        if let Some(data) = chart_data.get(dt) {
-                            let is_sig = data.stats.has_significant_results();
-                            Self::draw_chart_card_full_width(ui, data, is_sig, avail_width);
+                    ui.horizontal(|ui| {
+                        for col in 0..num_columns {
+                            let idx = row * num_columns + col;
+                            if idx < total_items {
+                                if let Some(dt) = order.get(idx) {
+                                    if let Some(data) = chart_data.get(dt) {
+                                        let is_sig = data.stats.has_significant_results();
+                                        Self::draw_chart_card_fixed_width(ui, data, is_sig);
+                                    }
+                                }
+                                ui.add_space(CHART_SPACING);
+                            }
                         }
-                    }
+                    });
                     ui.add_space(CHART_SPACING);
                 }
             });
     }
 
-    /// Draw a single chart card at full width
-    fn draw_chart_card_full_width(
-        ui: &mut egui::Ui,
-        chart_data: &ChartData,
-        is_sig: bool,
-        available_width: f32,
-    ) {
+    /// Draw a single chart card with fixed width
+    fn draw_chart_card_fixed_width(ui: &mut egui::Ui, chart_data: &ChartData, is_sig: bool) {
         let border_color = if is_sig {
             Color32::from_rgb(220, 53, 69) // Red for significant
         } else {
             Color32::from_rgb(40, 167, 69) // Green for match
         };
 
-        // Card width with padding
-        let card_width = available_width - 20.0;
+        // Fixed card width
+        let card_width = CHART_WIDTH - 20.0;
         let chart_width = (card_width - 40.0) / 2.0; // Two charts side by side
 
         egui::Frame::none()
             .rounding(8.0)
             .stroke(egui::Stroke::new(2.0, border_color))
-            .fill(Color32::from_rgb(30, 30, 35))
+            .fill(ui.visuals().widgets.noninteractive.bg_fill)
             .inner_margin(12.0)
             .show(ui, |ui| {
                 ui.set_width(card_width);
@@ -162,23 +167,22 @@ impl ChartViewer {
 
                     ui.add_space(10.0);
 
-                    // Two charts side by side - larger
+                    // Two charts side by side - adjusted widths
                     ui.horizontal(|ui| {
-                        // Boxplot
+                        // Boxplot - narrower by 15px
                         ui.vertical(|ui| {
-                            ui.set_width(chart_width);
+                            ui.set_width(chart_width - 15.0);
                             ui.label(RichText::new("Distribution by Group").size(14.0).strong());
                             ChartPlotter::draw_boxplot_chart(ui, chart_data, true);
-                            // true = full size
                         });
 
                         ui.add_space(10.0);
 
-                        // QQ Plot
+                        // QQ Plot - wider by 15px
                         ui.vertical(|ui| {
-                            ui.set_width(chart_width);
+                            ui.set_width(chart_width + 15.0);
                             ui.label(RichText::new("Normal Quantile Plot").size(14.0).strong());
-                            ChartPlotter::draw_qq_chart(ui, chart_data, true); // true = full size
+                            ChartPlotter::draw_qq_chart(ui, chart_data, true);
                         });
                     });
 

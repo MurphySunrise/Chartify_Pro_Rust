@@ -205,6 +205,7 @@ impl ChartPlotter {
             .allow_zoom(full_size)
             .allow_drag(full_size)
             .allow_scroll(false)
+            .clamp_grid(true) // Prevent axis labels from extending outside plot area
             // Set x-axis range
             .include_x(0.0)
             .include_x(1.0)
@@ -413,7 +414,7 @@ impl ChartPlotter {
     /// Draw statistics table
     pub fn draw_stats_table(ui: &mut egui::Ui, stats: &DataTypeStats) {
         egui::Frame::none()
-            .fill(Color32::from_rgb(25, 25, 30))
+            .fill(ui.visuals().widgets.noninteractive.bg_fill)
             .rounding(5.0)
             .inner_margin(8.0)
             .show(ui, |ui| {
@@ -435,6 +436,9 @@ impl ChartPlotter {
                         ui.label(RichText::new("P-value").strong().size(11.0));
                         ui.end_row();
 
+                        // Get default text color from theme
+                        let default_text_color = ui.visuals().text_color();
+
                         // Data rows
                         for group_name in stats.get_ordered_groups() {
                             if let Some(gs) = stats.group_stats.get(&group_name) {
@@ -444,7 +448,7 @@ impl ChartPlotter {
                                 } else if gs.is_significant {
                                     Color32::from_rgb(220, 53, 69)
                                 } else {
-                                    Color32::LIGHT_GRAY
+                                    default_text_color
                                 };
 
                                 ui.label(
@@ -467,7 +471,7 @@ impl ChartPlotter {
                                     let p_color = if gs.is_significant {
                                         Color32::from_rgb(220, 53, 69)
                                     } else {
-                                        Color32::LIGHT_GRAY
+                                        default_text_color
                                     };
                                     ui.label(
                                         RichText::new(format!("{:.4}", p))
