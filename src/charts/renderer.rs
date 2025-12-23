@@ -3,10 +3,59 @@
 
 use crate::charts::ChartData;
 use crate::stats::DataTypeStats;
+use plotters::coord::ranged1d::{KeyPointHint, NoDefaultFormatting, Ranged, ValueFormatter};
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 use std::collections::HashMap;
 use std::fs;
+use std::ops::Range;
 use std::path::Path;
+
+/// Custom X-axis range for QQ plot that displays p-values at specific Z positions
+#[derive(Clone)]
+struct ProbabilityAxisRange {
+    range: Range<f64>,
+}
+
+impl ProbabilityAxisRange {
+    fn new(start: f64, end: f64) -> Self {
+        Self { range: start..end }
+    }
+}
+
+impl Ranged for ProbabilityAxisRange {
+    type FormatOption = NoDefaultFormatting;
+    type ValueType = f64;
+
+    fn map(&self, value: &f64, limit: (i32, i32)) -> i32 {
+        // Linear mapping from Z-score to pixel
+        let range_len = self.range.end - self.range.start;
+        let normalized = (*value - self.range.start) / range_len;
+        ((limit.1 - limit.0) as f64 * normalized) as i32 + limit.0
+    }
+
+    fn key_points<Hint: KeyPointHint>(&self, _hint: Hint) -> Vec<f64> {
+        // Return Z-scores corresponding to specific p-values:
+        // p=0.01, 0.05, 0.20, 0.25, 0.50, 0.75, 0.80, 0.95, 0.99
+        vec![
+            -2.326, -1.645, -0.842, -0.674, 0.0, 0.674, 0.842, 1.645, 2.326,
+        ]
+    }
+
+    fn range(&self) -> Range<f64> {
+        self.range.clone()
+    }
+}
+
+impl ValueFormatter<f64> for ProbabilityAxisRange {
+    fn format_ext(&self, value: &f64) -> String {
+        // Convert Z-score to p-value for display
+        use statrs::distribution::{ContinuousCDF, Normal};
+        let normal = Normal::new(0.0, 1.0).unwrap();
+        let p = normal.cdf(*value);
+        format!("{:.2}", p)
+    }
+}
 
 /// Color constants matching the dynamic chart colors
 const CONTROL_COLOR: RGBColor = RGBColor(52, 152, 219); // Blue
@@ -232,7 +281,7 @@ impl ChartRenderer {
         let mut non_ctrl_idx = 0;
         let box_size = 20i32;
         let box_y = 8i32;
-        let font_size = 18;
+        let font_size = 24;
 
         for group in chart_data.stats.get_ordered_groups() {
             let color =
@@ -247,15 +296,19 @@ impl ChartRenderer {
                 color.filled(),
             ))?;
 
-            // Draw group name - vertically centered with box middle
-            // Text baseline should be at box vertical center + half font height
+            // Draw group name - use center anchor for natural vertical alignment with box center
+            let text_y = box_y + box_size / 2;
+            let style = TextStyle::from(("sans-serif", font_size).into_font())
+                .color(&BLACK)
+                .pos(Pos::new(HPos::Left, VPos::Center));
+
             area.draw(&Text::new(
                 group.clone(),
-                (x_offset + box_size + 8, box_y + box_size / 2 - 3),
-                ("sans-serif", font_size).into_font().color(&BLACK),
+                (x_offset + box_size + 8, text_y),
+                style,
             ))?;
 
-            x_offset += 130;
+            x_offset += 150;
         }
 
         Ok(())
@@ -289,8 +342,8 @@ impl ChartRenderer {
         let mut chart = ChartBuilder::on(area)
             .margin(20)
             .x_label_area_size(50)
-            .y_label_area_size(60)
-            .caption("Distribution by Group", ("sans-serif", 20))
+            .y_label_area_size(80)
+            .caption("Distribution by Group", ("sans-serif", 24))
             .build_cartesian_2d(
                 -0.5f64..(ordered_groups.len() as f64 - 0.5),
                 (y_min - y_margin)..(y_max + y_margin),
@@ -304,6 +357,8 @@ impl ChartRenderer {
                 ordered_groups.get(idx).cloned().unwrap_or_default()
             })
             .y_desc("Value")
+            .label_style(("sans-serif", 18))
+            .axis_desc_style(("sans-serif", 24))
             .draw()?;
 
         let mut non_ctrl_idx = 0;
@@ -393,16 +448,46 @@ impl ChartRenderer {
                 color.stroke_width(1),
             )))?;
 
-            // Draw scatter points
-            let scatter_points: Vec<_> = values
+            // Draw scatter points with beeswarm-style distribution
+            // Similar values spread outward from center
+            let mut sorted_with_idx: Vec<(usize, f64)> = values
                 .iter()
                 .enumerate()
                 .filter(|(_, v)| !v.is_nan())
-                .map(|(j, &v)| {
-                    let jitter = ((j as f64 * 0.618).fract() - 0.5) * 0.5;
-                    (x + jitter, v)
-                })
+                .map(|(i, &v)| (i, v))
                 .collect();
+            sorted_with_idx
+                .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Group by proximity and assign horizontal offsets
+            let y_range = y_max - y_min;
+            let bin_size = y_range * 0.02; // Points within 2% of range are "similar"
+            let max_jitter = 0.35;
+
+            let mut scatter_points: Vec<(f64, f64)> = Vec::new();
+            let mut current_bin_y = f64::NEG_INFINITY;
+            let mut bin_count = 0;
+
+            for (_idx, y_val) in &sorted_with_idx {
+                if (*y_val - current_bin_y).abs() > bin_size {
+                    // New bin
+                    current_bin_y = *y_val;
+                    bin_count = 0;
+                }
+
+                // First point in bin at center, then alternate left/right
+                let jitter = if bin_count == 0 {
+                    0.0 // First point at center
+                } else {
+                    let offset_idx = (bin_count - 1) / 2 + 1;
+                    let sign = if bin_count % 2 == 1 { 1.0 } else { -1.0 };
+                    sign * offset_idx as f64 * 0.06
+                };
+                let jitter = jitter.clamp(-max_jitter, max_jitter);
+
+                scatter_points.push((x + jitter, *y_val));
+                bin_count += 1;
+            }
 
             chart.draw_series(
                 scatter_points
@@ -447,19 +532,21 @@ impl ChartRenderer {
         let y_max = all_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let y_margin = (y_max - y_min) * 0.1;
 
-        // X-axis: theoretical normal quantiles (Z-scores), typically -3 to +3
+        // X-axis: using custom ProbabilityAxisRange for specific p-value tick positions
+        let x_axis = ProbabilityAxisRange::new(-3.0, 3.0);
         let mut chart = ChartBuilder::on(area)
             .margin(20)
             .x_label_area_size(50)
-            .y_label_area_size(60)
-            .caption("Normal Quantile Plot", ("sans-serif", 20))
-            .build_cartesian_2d(-3.0f64..3.0f64, (y_min - y_margin)..(y_max + y_margin))?;
+            .y_label_area_size(80)
+            .caption("Normal Quantile Plot", ("sans-serif", 24))
+            .build_cartesian_2d(x_axis, (y_min - y_margin)..(y_max + y_margin))?;
 
+        // Configure mesh - tick positions come from ProbabilityAxisRange::key_points()
         chart
             .configure_mesh()
-            .x_desc("Theoretical Quantiles (Z)")
-            .y_desc("Sample Value")
-            .x_label_formatter(&|x| format!("{:.1}", x))
+            .x_desc("Probability")
+            .label_style(("sans-serif", 18))
+            .axis_desc_style(("sans-serif", 24))
             .draw()?;
 
         let mut non_ctrl_idx = 0;
@@ -519,64 +606,12 @@ impl ChartRenderer {
 
     /// Probit function (inverse normal CDF) - converts probability to Z-score
     fn probit(p: f64) -> f64 {
-        if p <= 0.0 {
-            return -3.0;
-        }
-        if p >= 1.0 {
-            return 3.0;
-        }
-
-        // Rational approximation for probit function
-        let a = [
-            -3.969683028665376e+01,
-            2.209460984245205e+02,
-            -2.759285104469687e+02,
-            1.383577518672690e+02,
-            -3.066479806614716e+01,
-            2.506628277459239e+00,
-        ];
-        let b = [
-            -5.447609879822406e+01,
-            1.615858368580409e+02,
-            -1.556989798598866e+02,
-            6.680131188771972e+01,
-            -1.328068155288572e+01,
-        ];
-        let c = [
-            -7.784894002430293e-03,
-            -3.223964580411365e-01,
-            -2.400758277161838e+00,
-            -2.549732539343734e+00,
-            4.374664141464968e+00,
-            2.938163982698783e+00,
-        ];
-        let d = [
-            7.784695709041462e-03,
-            3.224671290700398e-01,
-            2.445134137142996e+00,
-            3.754408661907416e+00,
-        ];
-
-        let p_low = 0.02425;
-        let p_high = 1.0 - p_low;
-
-        if p < p_low {
-            let q = (-2.0 * p.ln()).sqrt();
-            (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
-                / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
-        } else if p <= p_high {
-            let q = p - 0.5;
-            let r = q * q;
-            (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q
-                / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
-        } else {
-            let q = (-2.0 * (1.0 - p).ln()).sqrt();
-            -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5])
-                / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0)
-        }
+        use statrs::distribution::{ContinuousCDF, Normal};
+        let normal = Normal::new(0.0, 1.0).unwrap();
+        normal.inverse_cdf(p.clamp(0.001, 0.999))
     }
 
-    /// Render statistics table with grid lines
+    /// Render statistics table with grid lines - centered with even column widths
     fn render_stats_table<DB: DrawingBackend>(
         area: &DrawingArea<DB, plotters::coord::Shift>,
         stats: &DataTypeStats,
@@ -585,74 +620,68 @@ impl ChartRenderer {
         DB::ErrorType: 'static,
     {
         let headers = [
-            "Group", "N", "Mean", "Median", "Std", "P95", "P05", "(M-C)/σ", "P-value",
+            "Group", "N", "Mean", "Median", "Std", "P05", "P95", "(M-C)/σ", "P-value",
         ];
-        // Wider columns to match two charts width (~1320px total)
-        let col_widths: [i32; 9] = [180, 100, 140, 140, 120, 120, 120, 140, 140];
-        let row_height = 40;
-        let start_x = 40;
-        let start_y = 10;
+        let num_cols = headers.len();
         let num_rows = stats.group_stats.len() + 1; // +1 for header
-        let table_width: i32 = col_widths.iter().sum();
+
+        // Table dimensions - centered with 900px width
+        let table_width = 900i32;
+        let (canvas_width, canvas_height) = area.dim_in_pixel();
+        let start_x = (canvas_width as i32 - table_width) / 2; // Center horizontally
+
+        // Evenly split column widths
+        let col_width = table_width / num_cols as i32;
+        let actual_table_width = col_width * num_cols as i32; // Use actual width to avoid rounding issues
+
+        let row_height = 40;
         let table_height = row_height * num_rows as i32;
-        let font_size = 28;
+
+        // Center table vertically in the area
+        let start_y = (canvas_height as i32 - table_height) / 2;
+
+        let font_size = 24;
 
         let light_gray = RGBColor(180, 180, 180);
 
-        // Draw table outer border
-        area.draw(&Rectangle::new(
-            [
-                (start_x, start_y),
-                (start_x + table_width, start_y + table_height),
-            ],
-            BLACK.stroke_width(2),
-        ))?;
-
-        // Draw horizontal lines
+        // Draw horizontal lines (including top and bottom borders)
         for row in 0..=num_rows {
             let y = start_y + row as i32 * row_height;
-            let stroke = if row == 0 || row == 1 {
+            let stroke = if row == 0 || row == 1 || row == num_rows {
                 BLACK.stroke_width(2)
             } else {
                 light_gray.stroke_width(1)
             };
             area.draw(&PathElement::new(
-                vec![(start_x, y), (start_x + table_width, y)],
+                vec![(start_x, y), (start_x + actual_table_width, y)],
                 stroke,
             ))?;
         }
 
-        // Draw vertical lines
-        let mut x = start_x;
-        for width in col_widths.iter() {
+        // Draw vertical lines (evenly spaced, including left and right borders)
+        for col in 0..=num_cols {
+            let x = start_x + col as i32 * col_width;
+            let stroke = if col == 0 || col == num_cols {
+                BLACK.stroke_width(2)
+            } else {
+                light_gray.stroke_width(1)
+            };
             area.draw(&PathElement::new(
                 vec![(x, start_y), (x, start_y + table_height)],
-                light_gray.stroke_width(1),
+                stroke,
             ))?;
-            x += width;
         }
-        // Right border
-        area.draw(&PathElement::new(
-            vec![
-                (start_x + table_width, start_y),
-                (start_x + table_width, start_y + table_height),
-            ],
-            BLACK.stroke_width(2),
-        ))?;
 
-        // Draw table header text - centered in cells
-        let mut x_offset = start_x;
+        // Draw table header text - centered in cells using Pos anchor
         for (i, header) in headers.iter().enumerate() {
-            // Center horizontally: col_width/2 - approx text width/2
-            let text_width_approx = header.len() as i32 * 8;
-            let text_x = x_offset + (col_widths[i] - text_width_approx) / 2;
-            let text_y = start_y + row_height / 2 - 2;
-            area.draw(&Text::new(
-                *header,
-                (text_x.max(x_offset + 4), text_y),
-                ("sans-serif", font_size).into_font().color(&BLACK),
-            ))?;
-            x_offset += col_widths[i];
+            let cell_center_x = start_x + i as i32 * col_width + col_width / 2;
+            let cell_center_y = start_y + row_height / 2;
+
+            let style = TextStyle::from(("sans-serif", font_size).into_font())
+                .color(&BLACK)
+                .pos(Pos::new(HPos::Center, VPos::Center));
+
+            area.draw(&Text::new(*header, (cell_center_x, cell_center_y), style))?;
         }
 
         // Draw data rows
@@ -675,8 +704,8 @@ impl ChartRenderer {
                     format!("{:.3}", gs.mean),
                     format!("{:.3}", gs.median),
                     format!("{:.3}", gs.std),
-                    format!("{:.3}", gs.p95),
                     format!("{:.3}", gs.p05),
+                    format!("{:.3}", gs.p95),
                     gs.std_diff_from_control
                         .map(|d| format!("{:.3}", d))
                         .unwrap_or("-".to_string()),
@@ -685,23 +714,23 @@ impl ChartRenderer {
                         .unwrap_or("-".to_string()),
                 ];
 
-                // Center text vertically in row (raised higher)
-                let text_y = start_y + row_idx * row_height + row_height / 2 - 2;
-                let mut x_offset = start_x;
+                // Cell center Y position for this row
+                let cell_center_y = start_y + row_idx * row_height + row_height / 2;
+
                 for (i, value) in row_data.iter().enumerate() {
+                    let cell_center_x = start_x + i as i32 * col_width + col_width / 2;
                     // P-value and group name use text_color, others use black
                     let color = if i == 0 || i == 8 { text_color } else { BLACK };
 
-                    // Center horizontally in cell
-                    let text_width_approx = value.len() as i32 * 7;
-                    let text_x = x_offset + (col_widths[i] - text_width_approx) / 2;
+                    let style = TextStyle::from(("sans-serif", font_size).into_font())
+                        .color(&color)
+                        .pos(Pos::new(HPos::Center, VPos::Center));
 
                     area.draw(&Text::new(
                         value.clone(),
-                        (text_x.max(x_offset + 4), text_y),
-                        ("sans-serif", font_size).into_font().color(&color),
+                        (cell_center_x, cell_center_y),
+                        style,
                     ))?;
-                    x_offset += col_widths[i];
                 }
 
                 row_idx += 1;

@@ -198,82 +198,92 @@ impl ChartPlotter {
 
         let height = if full_size { 300.0 } else { 180.0 };
 
+        // Z-scores for p-values: 0.01→-2.326, 0.05→-1.645, 0.25→-0.674, 0.50→0, 0.75→0.674, 0.95→1.645, 0.99→2.326
+
         Plot::new(format!("qq_{}", chart_data.data_type))
             .height(height)
-            .x_axis_label("Quantile")
+            .x_axis_label("Probability")
             .y_axis_label("Value")
             .allow_zoom(full_size)
             .allow_drag(full_size)
             .allow_scroll(false)
-            .clamp_grid(true) // Prevent axis labels from extending outside plot area
-            // Set x-axis range
-            .include_x(0.0)
-            .include_x(1.0)
-            // Force specific quantile tick marks on x-axis
-            // Use same large step_size for all to ensure they all display
+            .clamp_grid(true)
+            // Set x-axis range in Z-score space
+            .include_x(-3.0)
+            .include_x(3.0)
+            // Force specific Z-score tick marks corresponding to p-values
             .x_grid_spacer(|_input| {
                 vec![
                     egui_plot::GridMark {
-                        value: 0.01,
-                        step_size: 1.0,
-                    },
+                        value: -2.326,
+                        step_size: 6.0,
+                    }, // p=0.01
                     egui_plot::GridMark {
-                        value: 0.05,
-                        step_size: 1.0,
-                    },
+                        value: -1.645,
+                        step_size: 6.0,
+                    }, // p=0.05
                     egui_plot::GridMark {
-                        value: 0.1,
-                        step_size: 1.0,
-                    },
+                        value: -0.842,
+                        step_size: 6.0,
+                    }, // p=0.20
                     egui_plot::GridMark {
-                        value: 0.25,
-                        step_size: 1.0,
-                    },
+                        value: -0.674,
+                        step_size: 6.0,
+                    }, // p=0.25
                     egui_plot::GridMark {
-                        value: 0.5,
-                        step_size: 1.0,
-                    },
+                        value: 0.0,
+                        step_size: 6.0,
+                    }, // p=0.50
                     egui_plot::GridMark {
-                        value: 0.75,
-                        step_size: 1.0,
-                    },
+                        value: 0.674,
+                        step_size: 6.0,
+                    }, // p=0.75
                     egui_plot::GridMark {
-                        value: 0.9,
-                        step_size: 1.0,
-                    },
+                        value: 0.842,
+                        step_size: 6.0,
+                    }, // p=0.80
                     egui_plot::GridMark {
-                        value: 0.95,
-                        step_size: 1.0,
-                    },
+                        value: 1.645,
+                        step_size: 6.0,
+                    }, // p=0.95
                     egui_plot::GridMark {
-                        value: 0.99,
-                        step_size: 1.0,
-                    },
+                        value: 2.326,
+                        step_size: 6.0,
+                    }, // p=0.99
                 ]
             })
-            // Custom x-axis formatter to show short decimal values (avoid overlap)
+            // Custom x-axis formatter to show p-values instead of Z-scores
             .x_axis_formatter(|mark, _range| {
-                let v = mark.value;
-                if v >= 0.0 && v <= 1.0 {
-                    // Format with short notation (e.g., ".05" instead of "0.05")
-                    let formatted = format!("{:.2}", v);
-                    let trimmed = formatted
-                        .trim_end_matches('0')
-                        .trim_end_matches('.')
-                        .to_string();
-                    // Remove leading "0" for values < 1 to save space
-                    if trimmed.starts_with("0.") {
-                        trimmed[1..].to_string()
-                    } else if trimmed == "0" {
-                        "0".to_string()
-                    } else if trimmed == "1" {
-                        "1".to_string()
-                    } else {
-                        trimmed
-                    }
-                } else {
-                    String::new()
+                let z = mark.value;
+                // Map Z-score to p-value label
+                if (z - (-2.326)).abs() < 0.1 {
+                    return "0.01".to_string();
                 }
+                if (z - (-1.645)).abs() < 0.1 {
+                    return "0.05".to_string();
+                }
+                if (z - (-0.842)).abs() < 0.1 {
+                    return "0.20".to_string();
+                }
+                if (z - (-0.674)).abs() < 0.1 {
+                    return "0.25".to_string();
+                }
+                if z.abs() < 0.1 {
+                    return "0.50".to_string();
+                }
+                if (z - 0.674).abs() < 0.1 {
+                    return "0.75".to_string();
+                }
+                if (z - 0.842).abs() < 0.1 {
+                    return "0.80".to_string();
+                }
+                if (z - 1.645).abs() < 0.1 {
+                    return "0.95".to_string();
+                }
+                if (z - 2.326).abs() < 0.1 {
+                    return "0.99".to_string();
+                }
+                String::new()
             })
             .show(ui, |plot_ui| {
                 let mut non_control_idx = 0;
@@ -297,20 +307,18 @@ impl ChartPlotter {
                     let mut sorted = values.clone();
                     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-                    // Calculate quantile positions (0 to 1)
-                    // Using (i) / (n-1) formula so first point is at 0% and last at 100%
+                    // Calculate Z-scores (theoretical normal quantiles)
+                    // Using (i + 0.5) / n formula for probability, then convert to Z
                     let n = sorted.len();
                     let points_vec: Vec<[f64; 2]> = sorted
                         .iter()
                         .enumerate()
                         .map(|(i, &val)| {
-                            // Quantile position from 0 to 1
-                            let quantile = if n > 1 {
-                                i as f64 / (n - 1) as f64
-                            } else {
-                                0.5
-                            };
-                            [quantile, val]
+                            // Probability position
+                            let p = (i as f64 + 0.5) / n as f64;
+                            // Convert to Z-score
+                            let z = Self::normal_ppf(p);
+                            [z, val]
                         })
                         .collect();
 
@@ -430,8 +438,8 @@ impl ChartPlotter {
                         ui.label(RichText::new("Mean").strong().size(11.0));
                         ui.label(RichText::new("Median").strong().size(11.0));
                         ui.label(RichText::new("Std").strong().size(11.0));
-                        ui.label(RichText::new("P95").strong().size(11.0));
                         ui.label(RichText::new("P05").strong().size(11.0));
+                        ui.label(RichText::new("P95").strong().size(11.0));
                         ui.label(RichText::new("(M-C)/σ").strong().size(11.0));
                         ui.label(RichText::new("P-value").strong().size(11.0));
                         ui.end_row();
@@ -458,8 +466,8 @@ impl ChartPlotter {
                                 ui.label(RichText::new(format!("{:.3}", gs.mean)).size(11.0));
                                 ui.label(RichText::new(format!("{:.3}", gs.median)).size(11.0));
                                 ui.label(RichText::new(format!("{:.3}", gs.std)).size(11.0));
-                                ui.label(RichText::new(format!("{:.3}", gs.p95)).size(11.0));
                                 ui.label(RichText::new(format!("{:.3}", gs.p05)).size(11.0));
+                                ui.label(RichText::new(format!("{:.3}", gs.p95)).size(11.0));
 
                                 if let Some(diff) = gs.std_diff_from_control {
                                     ui.label(RichText::new(format!("{:.3}", diff)).size(11.0));

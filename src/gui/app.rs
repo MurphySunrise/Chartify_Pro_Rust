@@ -43,6 +43,9 @@ pub struct ChartifyApp {
     // Async CSV loading
     load_rx: Option<Receiver<LoadResult>>,
     is_loading: bool,
+
+    // Last exported PPT path
+    last_ppt_path: Option<std::path::PathBuf>,
 }
 
 impl ChartifyApp {
@@ -55,6 +58,7 @@ impl ChartifyApp {
             is_calculating: false,
             load_rx: None,
             is_loading: false,
+            last_ppt_path: None,
         }
     }
 
@@ -310,6 +314,7 @@ impl ChartifyApp {
     fn handle_export_ppt(&mut self) {
         use crate::charts::ChartRenderer;
         use crate::ppt::PptGenerator;
+        use rayon::prelude::*;
 
         // Check if we have chart data
         if self.chart_viewer.chart_data.is_empty() {
@@ -327,33 +332,47 @@ impl ChartifyApp {
             None => return, // User cancelled
         };
 
-        self.control_panel.set_progress(10.0, "Rendering charts...");
+        self.control_panel
+            .set_progress(10.0, "Rendering charts (multi-core)...");
 
-        // Render charts to in-memory PNG bytes
+        // Collect chart data for parallel rendering
         let width = 1400u32;
         let height = 1000u32;
-        let mut image_data: Vec<Vec<u8>> = Vec::new();
-        let total = self.chart_viewer.data_type_order.len();
+        let chart_data_vec: Vec<_> = self
+            .chart_viewer
+            .data_type_order
+            .iter()
+            .filter_map(|dt| self.chart_viewer.chart_data.get(dt).cloned())
+            .collect();
 
-        for (idx, data_type) in self.chart_viewer.data_type_order.iter().enumerate() {
-            if let Some(chart_data) = self.chart_viewer.chart_data.get(data_type) {
-                match ChartRenderer::render_chart_card_to_bytes(chart_data, width, height) {
-                    Ok(png_bytes) => {
-                        image_data.push(png_bytes);
-                        let progress = 10.0 + (idx as f32 / total as f32) * 40.0;
-                        self.control_panel.set_progress(
-                            progress,
-                            &format!("Rendering chart {}/{}...", idx + 1, total),
-                        );
-                    }
-                    Err(e) => {
-                        self.control_panel
-                            .set_progress(0.0, &format!("Render error: {}", e));
-                        return;
-                    }
+        let total = chart_data_vec.len();
+
+        // Parallel render all charts using rayon
+        let results: Vec<Result<Vec<u8>, String>> = chart_data_vec
+            .par_iter()
+            .map(|chart_data| {
+                ChartRenderer::render_chart_card_to_bytes(chart_data, width, height)
+                    .map_err(|e| e.to_string())
+            })
+            .collect();
+
+        // Collect successful renders
+        let mut image_data: Vec<Vec<u8>> = Vec::new();
+        for (idx, result) in results.into_iter().enumerate() {
+            match result {
+                Ok(png_bytes) => {
+                    image_data.push(png_bytes);
+                }
+                Err(e) => {
+                    self.control_panel
+                        .set_progress(0.0, &format!("Render error on chart {}: {}", idx + 1, e));
+                    return;
                 }
             }
         }
+
+        self.control_panel
+            .set_progress(50.0, &format!("Rendered {} charts in parallel", total));
 
         if image_data.is_empty() {
             self.control_panel.set_progress(0.0, "No charts rendered");
@@ -370,10 +389,11 @@ impl ChartifyApp {
         ) {
             Ok(()) => {
                 let slide_count = image_data.len().div_ceil(4);
+                self.last_ppt_path = Some(output_path.clone());
                 self.control_panel.set_progress(
                     100.0,
                     &format!(
-                        "PPT exported: {} slides, {} charts",
+                        "PPT saved: {} slides, {} charts",
                         slide_count,
                         image_data.len()
                     ),
@@ -418,6 +438,14 @@ impl eframe::App for ChartifyApp {
                         }
                         ControlPanelAction::ExportPpt => {
                             self.handle_export_ppt();
+                        }
+                        ControlPanelAction::OpenPpt => {
+                            if let Some(path) = &self.last_ppt_path {
+                                if let Err(e) = open::that(path) {
+                                    self.control_panel
+                                        .set_progress(100.0, &format!("Failed to open PPT: {}", e));
+                                }
+                            }
                         }
                         ControlPanelAction::None => {}
                     }

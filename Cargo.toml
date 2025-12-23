@@ -49,6 +49,9 @@ rusttype = "0.9"
 ppt-rs = "0.1"
 zip = "0.6"
 
+# Open files with system default app
+open = "5"
+
 [profile.release]
 opt-level = 3
 lto = true

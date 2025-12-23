@@ -115,7 +115,7 @@ impl ControlPanel {
 
                     ui.label(RichText::new(&path_text).size(12.0).color(
                         if self.settings.csv_path.is_some() {
-                            Color32::WHITE
+                            ui.visuals().text_color()
                         } else {
                             Color32::GRAY
                         },
@@ -280,10 +280,22 @@ impl ControlPanel {
             // Export PPT button (enabled after calculation complete)
             let ppt_enabled = self.progress >= 100.0 && self.status.contains("Complete");
             ui.add_enabled_ui(ppt_enabled, |ui| {
-                let ppt_button = egui::Button::new(RichText::new("📄 Export PPT").size(14.0))
-                    .min_size(egui::vec2(150.0, 30.0));
+                let ppt_button = egui::Button::new(RichText::new("📄 Export PPT").size(16.0))
+                    .min_size(egui::vec2(200.0, 35.0));
                 if ui.add(ppt_button).clicked() {
                     action = ControlPanelAction::ExportPpt;
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // Open PPT button (enabled after export complete)
+            let open_enabled = self.status.contains("PPT saved");
+            ui.add_enabled_ui(open_enabled, |ui| {
+                let open_button = egui::Button::new(RichText::new("📂 Open PPT").size(16.0))
+                    .min_size(egui::vec2(200.0, 35.0));
+                if ui.add(open_button).clicked() {
+                    action = ControlPanelAction::OpenPpt;
                 }
             });
         });
@@ -331,4 +343,5 @@ pub enum ControlPanelAction {
     GroupColumnChanged,
     Calculate,
     ExportPpt,
+    OpenPpt,
 }
