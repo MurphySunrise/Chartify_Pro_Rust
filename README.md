@@ -48,18 +48,43 @@ cargo run --release
 
 ## 📖 Usage
 
-1. **Load Data** - Click "Browse" to select a CSV file
-2. **Configure** - Choose Group column and Data columns
-3. **Calculate** - Click "Calculate" to process data
-4. **Explore** - Interact with charts (zoom, drag)
-5. **Export** - Click "Export PPT" to generate PowerPoint report
+### Quick Start
 
-### CSV Format Requirements
+1. **Load Data** - Click "📂 Browse" to select a CSV file
+2. **Configure Analysis**
+   - Select **Group Column** (categorical, e.g., "Treatment")
+   - Select **Control Group** (baseline for comparison)
+   - Select **Data Columns** (numeric columns to analyze)
+3. **Calculate** - Click "▶ Start Calculation" to run analysis
+4. **Explore Charts** - Interactive boxplot and QQ plot with zoom/drag
+5. **Export Report** - Click "📄 Export PPT" to generate PowerPoint
+6. **Open Report** - Click "📂 Open PPT" to view the generated file
 
-| Column | Description |
-|--------|-------------|
-| Group | Categorical column for grouping (e.g., "Control", "Test1") |
-| Data | Numeric columns for analysis |
+### CSV Format Example
+
+```csv
+Group,DataType1,DataType2,DataType3
+Control,1.2,3.4,5.6
+Control,1.3,3.5,5.7
+Test_A,1.5,3.8,6.0
+Test_A,1.6,3.9,6.1
+Test_B,1.1,3.2,5.4
+Test_B,1.0,3.1,5.3
+```
+
+### Column Requirements
+
+| Column Type | Description | Example |
+|-------------|-------------|---------|
+| **Group** | Categorical column for grouping | "Control", "Test_A", "Test_B" |
+| **Data** | Numeric columns for statistical analysis | 1.2, 3.4, 5.6 |
+
+### Chart Features
+
+- **Boxplot**: Shows distribution with median, quartiles, and outliers
+- **Normal Quantile Plot**: X-axis displays probability values (0.01, 0.05, 0.20, 0.25, 0.50, 0.75, 0.80, 0.95, 0.99)
+  - Normal distribution appears as a straight line
+- **Statistics Table**: N, Mean, Median, Std, P05, P95, (M-C)/σ, P-value
 
 ## 🏗️ Architecture
 
