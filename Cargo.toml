@@ -9,9 +9,6 @@ description = "CSV Data Analysis & Interactive Chart Viewer"
 # Data processing
 polars = { version = "0.46", features = ["lazy", "csv", "strings", "dtype-full"] }
 
-# Numerical computing
-ndarray = "0.16"
-
 # Statistics
 statrs = "0.18"
 
@@ -37,16 +34,10 @@ serde_json = "1.0"
 # Image handling
 image = "0.25"
 
-# Static chart generation
-plotters = "0.3"
-plotters-bitmap = "0.3"
+# Static chart generation (with font rotation support)
+plotters = { version = "0.3", features = ["ttf", "bitmap_encoder"] }
 
-# Pixel-level drawing
-imageproc = "0.25"
-rusttype = "0.9"
-
-# PPT generation
-ppt-rs = "0.1"
+# PPT generation (ZIP/XML based)
 zip = "0.6"
 
 # Open files with system default app
@@ -55,6 +46,9 @@ open = "5"
 [profile.release]
 opt-level = 3
 lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
 
 [profile.dev]
 opt-level = 1

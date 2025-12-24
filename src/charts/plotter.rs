@@ -191,99 +191,30 @@ impl ChartPlotter {
     }
 
     /// Draw Normal Quantile Plot for a chart
-    /// X-axis: quantile (0 to 1) with percentage labels, Y-axis: sample value at that quantile
+    /// X-axis: theoretical Z-scores, Y-axis: sample value at that quantile
     pub fn draw_qq_chart(ui: &mut egui::Ui, chart_data: &ChartData, full_size: bool) {
         let ordered_groups = chart_data.stats.get_ordered_groups();
         let control_group = &chart_data.stats.control_group;
 
         let height = if full_size { 300.0 } else { 180.0 };
 
-        // Z-scores for p-values: 0.01→-2.326, 0.05→-1.645, 0.25→-0.674, 0.50→0, 0.75→0.674, 0.95→1.645, 0.99→2.326
-
         Plot::new(format!("qq_{}", chart_data.data_type))
             .height(height)
-            .x_axis_label("Probability")
+            .x_axis_label("Z-score")
             .y_axis_label("Value")
             .allow_zoom(full_size)
             .allow_drag(full_size)
             .allow_scroll(false)
-            .clamp_grid(true)
-            // Set x-axis range in Z-score space
             .include_x(-3.0)
             .include_x(3.0)
-            // Force specific Z-score tick marks corresponding to p-values
             .x_grid_spacer(|_input| {
-                vec![
-                    egui_plot::GridMark {
-                        value: -2.326,
-                        step_size: 6.0,
-                    }, // p=0.01
-                    egui_plot::GridMark {
-                        value: -1.645,
-                        step_size: 6.0,
-                    }, // p=0.05
-                    egui_plot::GridMark {
-                        value: -0.842,
-                        step_size: 6.0,
-                    }, // p=0.20
-                    egui_plot::GridMark {
-                        value: -0.674,
-                        step_size: 6.0,
-                    }, // p=0.25
-                    egui_plot::GridMark {
-                        value: 0.0,
-                        step_size: 6.0,
-                    }, // p=0.50
-                    egui_plot::GridMark {
-                        value: 0.674,
-                        step_size: 6.0,
-                    }, // p=0.75
-                    egui_plot::GridMark {
-                        value: 0.842,
-                        step_size: 6.0,
-                    }, // p=0.80
-                    egui_plot::GridMark {
-                        value: 1.645,
-                        step_size: 6.0,
-                    }, // p=0.95
-                    egui_plot::GridMark {
-                        value: 2.326,
-                        step_size: 6.0,
-                    }, // p=0.99
-                ]
-            })
-            // Custom x-axis formatter to show p-values instead of Z-scores
-            .x_axis_formatter(|mark, _range| {
-                let z = mark.value;
-                // Map Z-score to p-value label
-                if (z - (-2.326)).abs() < 0.1 {
-                    return "0.01".to_string();
-                }
-                if (z - (-1.645)).abs() < 0.1 {
-                    return "0.05".to_string();
-                }
-                if (z - (-0.842)).abs() < 0.1 {
-                    return "0.20".to_string();
-                }
-                if (z - (-0.674)).abs() < 0.1 {
-                    return "0.25".to_string();
-                }
-                if z.abs() < 0.1 {
-                    return "0.50".to_string();
-                }
-                if (z - 0.674).abs() < 0.1 {
-                    return "0.75".to_string();
-                }
-                if (z - 0.842).abs() < 0.1 {
-                    return "0.80".to_string();
-                }
-                if (z - 1.645).abs() < 0.1 {
-                    return "0.95".to_string();
-                }
-                if (z - 2.326).abs() < 0.1 {
-                    return "0.99".to_string();
-                }
-                String::new()
+                // Show integer Z-scores: -3, -2, -1, 0, 1, 2, 3
+                (-3..=3)
+                    .map(|z| egui_plot::GridMark {
+                        value: z as f64,
+                        step_size: 6.0, // Must be large enough to show labels
+                    })
+                    .collect()
             })
             .show(ui, |plot_ui| {
                 let mut non_control_idx = 0;

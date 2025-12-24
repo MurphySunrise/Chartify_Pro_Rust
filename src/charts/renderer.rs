@@ -6,6 +6,7 @@ use crate::stats::DataTypeStats;
 use plotters::coord::ranged1d::{KeyPointHint, NoDefaultFormatting, Ranged, ValueFormatter};
 use plotters::prelude::*;
 use plotters::style::text_anchor::{HPos, Pos, VPos};
+use plotters::style::FontTransform;
 use std::collections::HashMap;
 use std::fs;
 use std::ops::Range;
@@ -35,10 +36,26 @@ impl Ranged for ProbabilityAxisRange {
     }
 
     fn key_points<Hint: KeyPointHint>(&self, _hint: Hint) -> Vec<f64> {
-        // Return Z-scores corresponding to specific p-values:
-        // p=0.01, 0.05, 0.20, 0.25, 0.50, 0.75, 0.80, 0.95, 0.99
+        // Return Z-scores corresponding to p-values:
+        // 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995
         vec![
-            -2.326, -1.645, -0.842, -0.674, 0.0, 0.674, 0.842, 1.645, 2.326,
+            -2.576, // p=0.005
+            -2.326, // p=0.01
+            -2.054, // p=0.02
+            -1.645, // p=0.05
+            -1.282, // p=0.1
+            -0.842, // p=0.2
+            -0.524, // p=0.3
+            -0.253, // p=0.4
+            0.0,    // p=0.5
+            0.253,  // p=0.6
+            0.524,  // p=0.7
+            0.842,  // p=0.8
+            1.282,  // p=0.9
+            1.645,  // p=0.95
+            2.054,  // p=0.98
+            2.326,  // p=0.99
+            2.576,  // p=0.995
         ]
     }
 
@@ -89,15 +106,17 @@ impl ChartRenderer {
         }
     }
 
-    /// Render a complete chart card to SVG file
+    /// Render a complete chart card to PNG file (using BitMapBackend for font rotation support)
     pub fn render_chart_card(
         chart_data: &ChartData,
         output_path: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        use plotters::prelude::BitMapBackend;
+
         let width = 1400u32;
         let height = 1000u32;
 
-        let root = SVGBackend::new(output_path, (width, height)).into_drawing_area();
+        let root = BitMapBackend::new(output_path, (width, height)).into_drawing_area();
         root.fill(&WHITE)?;
 
         let is_sig = chart_data.stats.has_significant_results();
@@ -545,6 +564,11 @@ impl ChartRenderer {
         chart
             .configure_mesh()
             .x_desc("Probability")
+            .x_label_style(
+                ("sans-serif", 14)
+                    .into_font()
+                    .transform(FontTransform::Rotate270),
+            )
             .label_style(("sans-serif", 18))
             .axis_desc_style(("sans-serif", 24))
             .draw()?;
